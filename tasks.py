@@ -52,7 +52,7 @@ class ReleaseTask(Task):
     default_authoritative_version_path = '__init__.py'
     default_sphinx_conf_path = './docs/conf.py'
     
-    default_pypi_build = False
+    default_pypi = False
     
     def add_arguments(self, parser):
         
@@ -64,6 +64,8 @@ class ReleaseTask(Task):
     def __init__(self, *args, **kwargs):
         
         super().__init__(*args, **kwargs)
+        
+        self.use_pypi = self.settings.getboolean('pypi', self.default_pypi)
         
         self.authoritative_version_path = self.settings.get(
             'authoritative_version_path',
@@ -140,8 +142,7 @@ class ReleaseTask(Task):
         self.bump_version()
         self.commit_and_tag(branch_name)
         
-        if self.settings.getboolean('pypi_build', self.default_pypi_build):
-            self.do_build()
+        self.do_build()
         
         self.stdout.write('\nDone!', style='label')
         
@@ -149,8 +150,7 @@ class ReleaseTask(Task):
     
     def _verify_pypi(self):
         
-        if not self.settings.getboolean('pypi_build', self.default_pypi_build):
-            self.stdout.write('PyPI build not enabled')
+        if not self.use_pypi:
             return
         
         # Ensure the necessary Python libraries to build and release the
@@ -177,7 +177,7 @@ class ReleaseTask(Task):
     
     def verify_state(self):
         
-        self.stdout.write('Verifying state...', style='label')
+        self.stdout.write('Verifying state', style='label')
         
         self._verify_pypi()
         
@@ -345,14 +345,8 @@ class ReleaseTask(Task):
         
         self.cli(f'git push origin {branch_name} --tags')
     
-    def do_build(self):
+    def _do_pypi_build(self):
         
-        answer = input(f'Build and release version {self.new_version} (Y/n)? ')
-        
-        if answer.lower() != 'y':
-            return
-        
-        self.stdout.write('Building', style='label')
         build_result = self.cli('python3 -m build')
         if build_result.returncode:
             raise TaskError('Build failed.')
@@ -366,6 +360,24 @@ class ReleaseTask(Task):
         rm_result = self.cli('rm -rf ./build/ ./dist/ ./*egg-info/')
         if rm_result.returncode:
             raise TaskError('Cleanup failed.')
+    
+    def do_build(self):
+        
+        # Only proceed with the build if configured to build/publish a PyPI
+        # package or if a custom build process has been defined
+        if not self.use_pypi and not hasattr(self, 'build'):
+            return
+        
+        answer = input(f'Build and release version {self.new_version} (Y/n)? ')
+        if answer.lower() != 'y':
+            return
+        
+        self.stdout.write('\nBuilding', style='label')
+        
+        if self.use_pypi:
+            self._do_pypi_build()
+        else:
+            self.build()
     
     def show_merge_instructions(self, branch_name):
         
