@@ -28,20 +28,29 @@ def strip_comments(text):
     return re.sub(r'(?m)^ *#.*\n?', '', text).strip()
 
 
+class VersionNotFound(Exception):
+    """
+    Raised when attempting to extract a version from a file and no suitable
+    version could be found.
+    """
+    
+    pass
+
+
 class ReleaseTask(Task):
     
     help = (
         'Prepare and issue a new release of the project, including: Optionally '
         'create a new version branch, bump the version number and commit the '
-        'changes, tag the release, build and upload to PyPI.'
+        'changes, tag the release, optionally build and publish the release.'
     )
     
     default_main_branch = 'main'
     default_major_version_format = None
     default_release_branch_format = None
+    
     default_authoritative_version_path = '__init__.py'
     default_sphinx_conf_path = './docs/conf.py'
-    default_version_regex = r'(?m)^__version__ ?= ?(\'|")(.+)(\'|")'
     
     default_pypi_build = False
     
@@ -86,6 +95,17 @@ class ReleaseTask(Task):
             except AttributeError:
                 raise TaskError('Invalid release branch format.')
     
+    def extract_current_version(self, file_contents):
+        
+        # (?m) enables multiline mode
+        pattern = r'(?m)^__version__ ?= ?(\'|")(.+)(\'|")'
+        
+        match = re.search(pattern, file_contents)
+        if not match:
+            raise VersionNotFound()
+        
+        return match.group(2)
+    
     def get_current_version(self, path):
         
         if not path:
@@ -97,13 +117,10 @@ class ReleaseTask(Task):
         with open(path, 'r') as f:
             file_contents = f.read()
             
-            # (?m) enables multiline mode
-            pattern = self.settings.get('authoritative_version_regex', self.default_version_regex)
-            match = re.search(pattern, file_contents)
-            if not match:
+            try:
+                version = self.extract_current_version(file_contents)
+            except VersionNotFound:
                 raise TaskError(f'Authoritative version not found in {path}.')
-            
-            version = match.group(2)
         
         return version
     
